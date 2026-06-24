@@ -30,7 +30,16 @@ const TRAIL_DIST  = 6;
 const START_HALF  = 5;
 const MAX_PLAYERS = 10;
 const TICK_RATE   = 50; // ms per tick (20 Hz)
+// Inside tick(), after powerup pickup block, add:
+console.log(`Powerup active: ${powerup.active}, Players: ${players.size}`);
+function captureFloodFill(trail, slot) {
+  if (trail.length < 3) return { gained:0, stolen:{} };
 
+  // ... existing code ...
+
+  // Quick early-out if trail is too small
+  if (trail.length < 4) return { gained:0, stolen:{} };
+}
 // Powerup settings
 const POWERUP_PICKUP_R = 20;
 const POWERUP_RESPAWN  = 22000;
