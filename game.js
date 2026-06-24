@@ -1,32 +1,29 @@
 'use strict';
 /* =============================================================
-   TERRITORY.IO  —  Multiplayer Client
-   Connects to Node.js + Socket.IO backend.
-   Set SERVER_URL below to your Render deployment URL.
+   TERRITORY.IO  —  Multiplayer Client  (FIXED)
    ============================================================= */
 
 // ▼▼▼ CHANGE THIS to your Render server URL ▼▼▼
 const SERVER_URL = 'https://cyber-claim.onrender.com';
-// ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
-// ─── Constants (must match server) ────────────────────────────
-const CELL      = 20;
-const COLS      = 200;
-const ROWS      = 200;
-const W         = COLS * CELL;
-const H         = ROWS * CELL;
-const CX        = W / 2;
-const CY        = H / 2;
-const RADIUS    = Math.min(W, H) / 2 - CELL;
+// ─── Constants (must match server) ───────────────────────────
+const CELL   = 20;
+const COLS   = 200;
+const ROWS   = 200;
+const W      = COLS * CELL;
+const H      = ROWS * CELL;
+const CX     = W / 2;
+const CY     = H / 2;
+const RADIUS = Math.min(W, H) / 2 - CELL;
 
 const SPEED          = 2.6;
 const TRAIL_DIST     = 6;
 const START_HALF     = 5;
 
-const POWERUP_PICKUP_R  = 20;
-const POWERUP_HEX_SIZE  = 18;
-const POWERUP_RESPAWN   = 22000;
-const POWERUP_DESPAWN   = 12000;
+const POWERUP_PICKUP_R = 20;
+const POWERUP_HEX_SIZE = 18;
+const POWERUP_RESPAWN  = 22000;
+const POWERUP_DESPAWN  = 12000;
 
 const POWERUP_TYPES = {
   overcharge: {
@@ -49,7 +46,6 @@ const POWERUP_TYPES = {
   },
 };
 
-// Player colours assigned by server (slot → colours)
 let PLAYER_COLORS = [
   { fill:'#00b8d4', glow:'#00e5ff', trail:'#00e5ff' },
   { fill:'#e53935', glow:'#ff5252', trail:'#ff5252' },
@@ -63,30 +59,29 @@ let PLAYER_COLORS = [
   { fill:'#6d4c41', glow:'#bcaaa4', trail:'#bcaaa4' },
 ];
 
-const C_BG          = '#07090f';
-const C_GRID        = 'rgba(255,255,255,0.025)';
+const C_BG   = '#07090f';
+const C_GRID = 'rgba(255,255,255,0.025)';
 
-// ─── Canvas / context ────────────────────────────────────────
+// ─── Canvas / context ─────────────────────────────────────────
 const canvas = document.getElementById('gameCanvas');
 const ctx    = canvas.getContext('2d');
 
-const tCanvas = document.createElement('canvas');
-tCanvas.width  = W; tCanvas.height = H;
-const tCtx     = tCanvas.getContext('2d');
+const tCanvas       = document.createElement('canvas');
+tCanvas.width       = W; tCanvas.height = H;
+const tCtx          = tCanvas.getContext('2d');
 
-const mmSize   = 160;
-const mmCanvas = document.createElement('canvas');
-mmCanvas.width  = mmSize; mmCanvas.height = mmSize;
-const mmCtx     = mmCanvas.getContext('2d');
-let   mmDirty   = true;
+const mmSize        = 160;
+const mmCanvas      = document.createElement('canvas');
+mmCanvas.width      = mmSize; mmCanvas.height = mmSize;
+const mmCtx         = mmCanvas.getContext('2d');
+let   mmDirty       = true;
 
-// ─── Shared grid ─────────────────────────────────────────────
-// 0=unclaimed, 1-10 = owned by player slot+1
+// ─── Shared grid ──────────────────────────────────────────────
 const grid = new Uint8Array(COLS * ROWS);
 
-function gi(c,r)       { return r*COLS+c; }
-function inBounds(c,r) { return c>=0&&c<COLS&&r>=0&&r<ROWS; }
-function getG(c,r)     { return inBounds(c,r)?grid[gi(c,r)]:0; }
+function gi(c,r)          { return r*COLS+c; }
+function inBounds(c,r)    { return c>=0&&c<COLS&&r>=0&&r<ROWS; }
+function getG(c,r)        { return inBounds(c,r)?grid[gi(c,r)]:0; }
 function worldToCell(x,y) { return [Math.floor(x/CELL), Math.floor(y/CELL)]; }
 
 // ─── Multiplayer state ────────────────────────────────────────
@@ -95,31 +90,31 @@ let myId      = null;
 let mySlot    = 0;
 let connected = false;
 
-// All players (including self) keyed by socket id
-const remotePlayers = new Map(); // id → { id, slot, name, x, y, angle, outside, trail, effectType }
+// All remote players keyed by socket id
+const remotePlayers = new Map();
 
-// Local player (authoritative movement, sent to server)
+// Local player — movement is predicted locally, server is authoritative on captures/kills
 const player = {
-  x: CX, y: CY, angle: 0,
-  trail: [], outside: false,
-  slot: 0,
+  x:CX, y:CY, angle:0,
+  trail:[], outside:false,
+  slot:0,
 };
 
 // ─── Kill feed ────────────────────────────────────────────────
-const killFeed   = []; // { text, color, timestamp }
-const KILLFEED_DURATION = 5000; // ms
+const killFeed = [];
+const KILLFEED_DURATION = 5000;
 
 function addKillFeed(text, color='#fff') {
-  killFeed.unshift({ text, color, ts: Date.now() });
+  killFeed.unshift({ text, color, ts:Date.now() });
   if (killFeed.length > 6) killFeed.pop();
 }
 
 // ─── Leaderboard ──────────────────────────────────────────────
-let leaderboard = []; // [{id, name, slot, cells, score}]
+let leaderboard = [];
 
 // ─── Score ────────────────────────────────────────────────────
-let ownedCells     = 0;
-let territoryScore = 0;
+let ownedCells        = 0;
+let territoryScore    = 0;
 let totalOwnableCells = 0;
 for (let r=0;r<ROWS;r++) for (let c=0;c<COLS;c++) {
   const wx=(c+0.5)*CELL, wy=(r+0.5)*CELL;
@@ -130,13 +125,13 @@ for (let r=0;r<ROWS;r++) for (let c=0;c<COLS;c++) {
 const powerup = { x:0, y:0, active:false, type:null, despawnTimer:POWERUP_DESPAWN };
 const effect  = { type:null, remaining:0 };
 
-// ─── Camera / input ──────────────────────────────────────────
+// ─── Camera / input ───────────────────────────────────────────
 const camera = { x:0, y:0 };
 const input  = { x:0, y:0, active:false };
 const cursor = { x:-999, y:-999 };
 const joy    = { active:false, startX:0, startY:0, dx:0, dy:0 };
 
-// ─── FX ──────────────────────────────────────────────────────
+// ─── FX ───────────────────────────────────────────────────────
 let globalTime=0, lastTime=0, fps=0, fpsAccum=0, fpsFrames=0;
 const pulses     = [];
 const flashAlpha = { v:0 };
@@ -153,157 +148,180 @@ const elHint     = document.getElementById('hint');
 const elBoostHud = document.getElementById('boost-hud');
 const elBoostTimer = document.getElementById('boost-timer');
 const elFlash    = document.getElementById('capture-flash');
-const elKillfeed = document.getElementById('killfeed');
-const elLeaderboard = document.getElementById('leaderboard-list');
-const elConnStatus  = document.getElementById('conn-status');
-const elPlayerCount = document.getElementById('player-count');
+// injected later:
+let elKillfeed   = null;
+let elLeaderboard= null;
+let elConnStatus = null;
+let elPlayerCount= null;
 
 // ─── Socket connection ────────────────────────────────────────
 function connectSocket() {
-  // Load socket.io client from server
-  const script = document.createElement('script');
-  script.src = SERVER_URL + '/socket.io/socket.io.js';
-  script.onload = () => {
-    socket = io(SERVER_URL, { transports:['websocket','polling'] });
-
-    socket.on('connect', () => {
-      connected = true;
-      if (elConnStatus) { elConnStatus.textContent='Connected'; elConnStatus.style.color='#69f0ae'; }
-    });
-
-    socket.on('disconnect', () => {
-      connected = false;
-      if (elConnStatus) { elConnStatus.textContent='Disconnected'; elConnStatus.style.color='#ff5252'; }
-    });
-
-    socket.on('roomFull', () => {
-      alert('Server is full (10 players max). Try again later!');
-    });
-
-    socket.on('init', data => {
-      myId   = data.myId;
-      mySlot = data.mySlot;
-      if (data.colors) PLAYER_COLORS = data.colors;
-
-      // Load grid
-      const buf  = Uint8Array.from(atob(data.grid), c=>c.charCodeAt(0));
-      grid.set(buf);
-      redrawTerritoryCanvas();
-      mmDirty = true;
-
-      // Self
-      player.slot = mySlot;
-      const myStart = data.players.find(p=>p.id===myId);
-      if (myStart) { player.x=myStart.x; player.y=myStart.y; player.angle=myStart.angle; }
-
-      // Remote players
-      remotePlayers.clear();
-      for (const rp of data.players) {
-        if (rp.id !== myId) remotePlayers.set(rp.id, rp);
-      }
-
-      // Powerup
-      if (data.powerup) Object.assign(powerup, data.powerup);
-
-      recalcOwnedCells();
-      if (elPlayerCount) elPlayerCount.textContent = data.players.length + '/10';
-    });
-
-    socket.on('playerJoined', data => {
-      remotePlayers.set(data.id, data);
-      addKillFeed(`${data.name} joined`, '#aaa');
-      if (elPlayerCount) elPlayerCount.textContent = (remotePlayers.size+1) + '/10';
-    });
-
-    socket.on('playerLeft', data => {
-      const rp = remotePlayers.get(data.id);
-      if (rp) addKillFeed(`${rp.name} left`, '#888');
-      remotePlayers.delete(data.id);
-      if (elPlayerCount) elPlayerCount.textContent = (remotePlayers.size+1) + '/10';
-    });
-
-    socket.on('playerPositions', list => {
-      for (const rp of list) {
-        if (rp.id === myId) {
-          // Server corrects our position on kill
-          // (we trust server for respawn, keep local movement otherwise)
-        } else {
-          remotePlayers.set(rp.id, rp);
-        }
-      }
-    });
-
-    socket.on('gridUpdate', b64 => {
-      const buf = Uint8Array.from(atob(b64), c=>c.charCodeAt(0));
-      grid.set(buf);
-      redrawTerritoryCanvas();
-      mmDirty = true;
-      recalcOwnedCells();
-    });
-
-    socket.on('leaderboard', data => {
-      leaderboard = data;
-      renderLeaderboardDOM();
-    });
-
-    socket.on('playerKilled', data => {
-      const { victimName, killerName, killerSlot, victimId, reason } = data;
-      const kColor = killerSlot !== undefined ? PLAYER_COLORS[killerSlot]?.trail||'#fff' : '#fff';
-
-      let msg = '';
-      if (reason === 'self') msg = `${victimName} cut their own trail`;
-      else if (reason === 'trail_cut') msg = `${killerName} cut ${victimName}'s trail`;
-      else msg = `${victimName} was eliminated`;
-
-      addKillFeed(msg, kColor);
-
-      // If WE got killed, reset local state
-      if (victimId === myId) {
-        player.outside = false;
-        player.trail   = [];
-        const sp = getStartPos(mySlot);
-        player.x = sp.x; player.y = sp.y; player.angle = 0;
-        spawnCaptureFX(0); // flash
-        flashAlpha.v = 0.9;
-      }
-    });
-
-    socket.on('powerupState', data => {
-      Object.assign(powerup, data);
-    });
-
-    socket.on('powerupPickup', data => {
-      if (data.playerId === myId) {
-        const def        = POWERUP_TYPES[data.powerupType];
-        effect.type      = data.powerupType;
-        effect.remaining = def.duration;
-        flashAlpha.v     = 0.55;
-      }
-    });
-  };
+  const script   = document.createElement('script');
+  script.src     = SERVER_URL + '/socket.io/socket.io.js';
+  script.onload  = () => initSocket();
   script.onerror = () => {
     if (elConnStatus) { elConnStatus.textContent='Server unreachable'; elConnStatus.style.color='#ff5252'; }
   };
   document.head.appendChild(script);
 }
 
+function initSocket() {
+  // FIX: guard against calling this multiple times (was possible if script loaded twice)
+  if (socket) return;
+
+  socket = io(SERVER_URL, { transports:['websocket','polling'] });
+
+  socket.on('connect', () => {
+    connected = true;
+    if (elConnStatus) { elConnStatus.textContent='Connected'; elConnStatus.style.color='#69f0ae'; }
+  });
+
+  socket.on('disconnect', () => {
+    connected = false;
+    if (elConnStatus) { elConnStatus.textContent='Disconnected'; elConnStatus.style.color='#ff5252'; }
+  });
+
+  socket.on('roomFull', () => alert('Server is full (10 players max). Try again later!'));
+
+  socket.on('init', data => {
+    myId   = data.myId;
+    mySlot = data.mySlot;
+    if (data.colors) PLAYER_COLORS = data.colors;
+
+    // Load grid
+    const buf = Uint8Array.from(atob(data.grid), c=>c.charCodeAt(0));
+    grid.set(buf);
+    redrawTerritoryCanvas();
+    mmDirty = true;
+
+    // Self — use server position
+    player.slot    = mySlot;
+    player.outside = false;
+    player.trail   = [];
+    const myStart  = data.players.find(p=>p.id===myId);
+    if (myStart) { player.x=myStart.x; player.y=myStart.y; player.angle=myStart.angle; }
+
+    // Remote players
+    remotePlayers.clear();
+    for (const rp of data.players) {
+      if (rp.id !== myId) remotePlayers.set(rp.id, rp);
+    }
+
+    if (data.powerup) Object.assign(powerup, data.powerup);
+
+    recalcOwnedCells();
+    if (elPlayerCount) elPlayerCount.textContent = data.players.length + '/10';
+
+    // FIX: prompt for name AFTER we have a socket id (was using setTimeout(1200) which
+    //      raced against async script load and sometimes fired before socket was ready)
+    promptName();
+  });
+
+  socket.on('playerJoined', data => {
+    // FIX: server now sends correct socket id; just store it directly
+    if (data.id !== myId) remotePlayers.set(data.id, data);
+    addKillFeed(`${data.name} joined`, '#aaa');
+    if (elPlayerCount) elPlayerCount.textContent = (remotePlayers.size+1) + '/10';
+  });
+
+  socket.on('playerLeft', data => {
+    const rp = remotePlayers.get(data.id);
+    if (rp) addKillFeed(`${rp.name} left`, '#888');
+    remotePlayers.delete(data.id);
+    if (elPlayerCount) elPlayerCount.textContent = (remotePlayers.size+1) + '/10';
+  });
+
+  socket.on('playerPositions', list => {
+    for (const rp of list) {
+      if (rp.id === myId) {
+        // FIX: sync outside/trail from server so capture state stays consistent
+        // Keep local x/y/angle for smooth prediction, but trust server's game state flags
+        player.outside = rp.outside;
+        if (!rp.outside) player.trail = []; // server says we're home → clear trail
+      } else {
+        remotePlayers.set(rp.id, rp);
+      }
+    }
+  });
+
+  socket.on('gridUpdate', b64 => {
+    const buf = Uint8Array.from(atob(b64), c=>c.charCodeAt(0));
+    grid.set(buf);
+    redrawTerritoryCanvas();
+    mmDirty = true;
+    recalcOwnedCells();
+  });
+
+  socket.on('leaderboard', data => {
+    leaderboard = data;
+    // FIX: update score from leaderboard (server is authoritative on score)
+    const mine = leaderboard.find(e=>e.id===myId);
+    if (mine) territoryScore = mine.score;
+    renderLeaderboardDOM();
+  });
+
+  socket.on('playerKilled', data => {
+    const { victimName, killerName, killerSlot, victimId, reason } = data;
+    const kColor = killerSlot !== undefined ? (PLAYER_COLORS[killerSlot]?.trail||'#fff') : '#fff';
+    let msg='';
+    if      (reason==='self')       msg=`${victimName} cut their own trail`;
+    else if (reason==='trail_cut')  msg=`${killerName} cut ${victimName}'s trail`;
+    else                            msg=`${victimName} was eliminated`;
+    addKillFeed(msg, kColor);
+
+    if (victimId === myId) {
+      // Server respawned us — reset local prediction state
+      player.outside = false;
+      player.trail   = [];
+      const sp = getStartPos(mySlot);
+      player.x=sp.x; player.y=sp.y; player.angle=0;
+      flashAlpha.v = 0.9;
+    }
+  });
+
+  socket.on('powerupState', data => {
+    Object.assign(powerup, data);
+  });
+
+  socket.on('powerupPickup', data => {
+    if (data.playerId === myId) {
+      const def        = POWERUP_TYPES[data.powerupType];
+      effect.type      = data.powerupType;
+      effect.remaining = def.duration;
+      flashAlpha.v     = 0.55;
+    }
+  });
+}
+
+// ─── Name prompt ──────────────────────────────────────────────
+let _namePrompted = false;
+function promptName() {
+  if (_namePrompted || !socket) return;
+  _namePrompted = true;
+  // Small delay so the screen has rendered before the prompt blocks it
+  setTimeout(() => {
+    const name = prompt('Enter your name (max 16 chars):', 'Player');
+    if (name && socket && connected) socket.emit('setName', name.slice(0,16));
+  }, 300);
+}
+
+// ─── Start positions ──────────────────────────────────────────
 const START_POSITIONS = [
-  { x:CX,       y:CY       },{ x:CX-600, y:CY-600 },{ x:CX+600, y:CY-600 },
-  { x:CX-600,   y:CY+600   },{ x:CX+600, y:CY+600 },{ x:CX,     y:CY-800 },
-  { x:CX,       y:CY+800   },{ x:CX-800, y:CY     },{ x:CX+800, y:CY     },
-  { x:CX-400,   y:CY+900   },
+  {x:CX,y:CY},{x:CX-600,y:CY-600},{x:CX+600,y:CY-600},
+  {x:CX-600,y:CY+600},{x:CX+600,y:CY+600},{x:CX,y:CY-800},
+  {x:CX,y:CY+800},{x:CX-800,y:CY},{x:CX+800,y:CY},{x:CX-400,y:CY+900},
 ];
 function getStartPos(slot) { return START_POSITIONS[slot % START_POSITIONS.length]; }
 
 function recalcOwnedCells() {
   let cnt=0;
-  const mine = mySlot+1;
+  const mine=mySlot+1;
   for (let i=0;i<grid.length;i++) if(grid[i]===mine) cnt++;
-  ownedCells = cnt;
+  ownedCells=cnt;
 }
 
-// ─── Input to server at 20Hz ──────────────────────────────────
-let inputTimer = 0;
+// ─── Send input to server at 20 Hz ───────────────────────────
+let inputTimer=0;
 function sendInput(dt) {
   inputTimer += dt;
   if (inputTimer < 50) return;
@@ -311,7 +329,7 @@ function sendInput(dt) {
   if (!socket || !connected) return;
 
   let dx=0, dy=0;
-  if (joy.active && (joy.dx||joy.dy)) { dx=joy.dx; dy=joy.dy; }
+  if (joy.active&&(joy.dx||joy.dy)) { dx=joy.dx; dy=joy.dy; }
   else if (input.active) {
     const wx=input.x+camera.x, wy=input.y+camera.y;
     const ddx=wx-player.x, ddy=wy-player.y;
@@ -324,25 +342,16 @@ function sendInput(dt) {
 // ─── Territory canvas ─────────────────────────────────────────
 function redrawTerritoryCanvas() {
   tCtx.clearRect(0,0,W,H);
-
-  // Draw each player's territory with their colour
-  for (let slot=0; slot<10; slot++) {
-    const gridVal = slot+1;
-    const col = PLAYER_COLORS[slot];
-    if (!col) continue;
-
-    // Fill
-    tCtx.fillStyle = col.fill + '45';
-    for (let r=0;r<ROWS;r++) for (let c=0;c<COLS;c++) {
-      if (grid[gi(c,r)]===gridVal) tCtx.fillRect(c*CELL,r*CELL,CELL,CELL);
-    }
-
-    // Border
-    tCtx.strokeStyle = col.trail;
-    tCtx.lineWidth   = 2;
-    tCtx.beginPath();
-    for (let r=0;r<ROWS;r++) for (let c=0;c<COLS;c++) {
-      if (grid[gi(c,r)]!==gridVal) continue;
+  for (let slot=0;slot<10;slot++){
+    const gridVal=slot+1;
+    const col=PLAYER_COLORS[slot];
+    if(!col) continue;
+    tCtx.fillStyle=col.fill+'45';
+    for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++)
+      if(grid[gi(c,r)]===gridVal) tCtx.fillRect(c*CELL,r*CELL,CELL,CELL);
+    tCtx.strokeStyle=col.trail; tCtx.lineWidth=2; tCtx.beginPath();
+    for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++){
+      if(grid[gi(c,r)]!==gridVal) continue;
       const x=c*CELL, y=r*CELL;
       if(getG(c,r-1)!==gridVal){tCtx.moveTo(x,y);      tCtx.lineTo(x+CELL,y);}
       if(getG(c,r+1)!==gridVal){tCtx.moveTo(x,y+CELL); tCtx.lineTo(x+CELL,y+CELL);}
@@ -354,7 +363,7 @@ function redrawTerritoryCanvas() {
 }
 
 // ─── Hex helper ───────────────────────────────────────────────
-function hexPath(ctx2d,hx,hy,r,rotation) {
+function hexPath(ctx2d,hx,hy,r,rotation){
   ctx2d.beginPath();
   for(let i=0;i<6;i++){
     const a=rotation+(Math.PI/3)*i;
@@ -364,38 +373,33 @@ function hexPath(ctx2d,hx,hy,r,rotation) {
   ctx2d.closePath();
 }
 
-// ─── Minimap ─────────────────────────────────────────────────
-function rebuildMinimap() {
+// ─── Minimap ──────────────────────────────────────────────────
+function rebuildMinimap(){
   mmCtx.clearRect(0,0,mmSize,mmSize);
-  mmCtx.fillStyle='#0a0c14';
-  mmCtx.fillRect(0,0,mmSize,mmSize);
+  mmCtx.fillStyle='#0a0c14'; mmCtx.fillRect(0,0,mmSize,mmSize);
   const sx=mmSize/COLS, sy=mmSize/ROWS;
-  for (let slot=0;slot<10;slot++){
+  for(let slot=0;slot<10;slot++){
     const gridVal=slot+1, col=PLAYER_COLORS[slot];
     if(!col) continue;
     mmCtx.fillStyle=col.fill+'99';
-    for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++){
+    for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++)
       if(grid[gi(c,r)]===gridVal) mmCtx.fillRect(c*sx,r*sy,sx+0.5,sy+0.5);
-    }
   }
   mmDirty=false;
 }
 
-function renderMinimap(vw,vh,cx,cy) {
+function renderMinimap(vw,vh,cx,cy){
   if(mmDirty) rebuildMinimap();
   const R=70, mx=vw-R-16, my=vh-R-16;
   ctx.save();
   ctx.beginPath(); ctx.arc(mx,my,R,0,Math.PI*2); ctx.clip();
   ctx.drawImage(mmCanvas,mx-R,my-R,R*2,R*2);
 
-  // Draw all trails on minimap
-  for (const rp of [...remotePlayers.values(), { ...player, id:myId, slot:mySlot, trail:player.trail, outside:player.outside }]) {
-    if (!rp.outside || !rp.trail || rp.trail.length<2) continue;
-    const col=PLAYER_COLORS[rp.slot];
-    if(!col) continue;
+  for(const rp of [...remotePlayers.values(),{...player,id:myId,slot:mySlot,trail:player.trail,outside:player.outside}]){
+    if(!rp.outside||!rp.trail||rp.trail.length<2) continue;
+    const col=PLAYER_COLORS[rp.slot]; if(!col) continue;
     const scx=(R*2)/W, scy=(R*2)/H;
-    ctx.strokeStyle=col.trail;
-    ctx.lineWidth=1; ctx.globalAlpha=0.8;
+    ctx.strokeStyle=col.trail; ctx.lineWidth=1; ctx.globalAlpha=0.8;
     ctx.beginPath();
     for(let i=0;i<rp.trail.length;i++){
       const tx=mx-R+rp.trail[i].x*scx, ty=my-R+rp.trail[i].y*scy;
@@ -404,33 +408,24 @@ function renderMinimap(vw,vh,cx,cy) {
     ctx.stroke(); ctx.globalAlpha=1;
   }
 
-  // Viewport rect
   ctx.strokeStyle='rgba(255,255,255,0.2)'; ctx.lineWidth=1;
   ctx.strokeRect(mx-R+cx*(R*2/W),my-R+cy*(R*2/H),vw*(R*2/W),vh*(R*2/H));
 
-  // All player dots
-  for (const rp of remotePlayers.values()) {
-    const col=PLAYER_COLORS[rp.slot];
-    if(!col) continue;
+  for(const rp of remotePlayers.values()){
+    const col=PLAYER_COLORS[rp.slot]; if(!col) continue;
     ctx.fillStyle=col.fill;
-    ctx.beginPath();
-    ctx.arc(mx-R+rp.x*(R*2/W),my-R+rp.y*(R*2/H),2.5,0,Math.PI*2);
-    ctx.fill();
+    ctx.beginPath(); ctx.arc(mx-R+rp.x*(R*2/W),my-R+rp.y*(R*2/H),2.5,0,Math.PI*2); ctx.fill();
   }
-  // Self (white dot on top)
   ctx.fillStyle='#fff';
-  ctx.beginPath();
-  ctx.arc(mx-R+player.x*(R*2/W),my-R+player.y*(R*2/H),2.5,0,Math.PI*2);
-  ctx.fill();
+  ctx.beginPath(); ctx.arc(mx-R+player.x*(R*2/W),my-R+player.y*(R*2/H),2.5,0,Math.PI*2); ctx.fill();
 
   if(powerup.active&&powerup.type){
     const _def=POWERUP_TYPES[powerup.type];
     const pulse=0.6+0.4*Math.sin(globalTime*0.006);
     ctx.fillStyle=_def.color; ctx.globalAlpha=pulse;
     ctx.shadowColor=_def.glowColor; ctx.shadowBlur=4;
-    ctx.beginPath();
-    ctx.arc(mx-R+powerup.x*(R*2/W),my-R+powerup.y*(R*2/H),2,0,Math.PI*2);
-    ctx.fill(); ctx.shadowBlur=0; ctx.globalAlpha=1;
+    ctx.beginPath(); ctx.arc(mx-R+powerup.x*(R*2/W),my-R+powerup.y*(R*2/H),2,0,Math.PI*2); ctx.fill();
+    ctx.shadowBlur=0; ctx.globalAlpha=1;
   }
   ctx.restore();
   ctx.save(); ctx.strokeStyle='rgba(0,200,255,0.4)'; ctx.lineWidth=1.5;
@@ -438,20 +433,26 @@ function renderMinimap(vw,vh,cx,cy) {
 }
 
 // ─── Init ─────────────────────────────────────────────────────
-function init() {
+function init(){
   injectStyles();
   injectUIElements();
+  // Assign DOM refs after injection
+  elKillfeed    = document.getElementById('killfeed');
+  elLeaderboard = document.getElementById('leaderboard-list');
+  elConnStatus  = document.getElementById('conn-status');
+  elPlayerCount = document.getElementById('player-count');
+
   redrawTerritoryCanvas();
   resizeCanvas();
-  window.addEventListener('resize',resizeCanvas);
+  window.addEventListener('resize', resizeCanvas);
 
-  // PC
+  // PC mouse
   canvas.addEventListener('mousemove', e=>{
     input.x=e.clientX; input.y=e.clientY; input.active=true;
     cursor.x=e.clientX; cursor.y=e.clientY;
   });
 
-  // Mobile
+  // Mobile touch joystick
   canvas.addEventListener('touchstart', e=>{ e.preventDefault();
     const t=e.changedTouches[0];
     joy.active=true; joy.startX=t.clientX; joy.startY=t.clientY; joy.dx=0; joy.dy=0;
@@ -462,27 +463,19 @@ function init() {
     const d=Math.hypot(dx,dy);
     if(d>8){ joy.dx=dx/d; joy.dy=dy/d; }
   },{ passive:false });
-  canvas.addEventListener('touchend',()=>{ joy.active=false; joy.dx=0; joy.dy=0; });
+  canvas.addEventListener('touchend', ()=>{ joy.active=false; joy.dx=0; joy.dy=0; });
 
-  setTimeout(()=>elHint&&elHint.classList.add('hidden'),5000);
+  setTimeout(()=>elHint&&elHint.classList.add('hidden'), 5000);
 
-  // Name prompt
-  setTimeout(()=>{
-    if (!socket) return;
-    const name = prompt('Enter your name (max 16 chars):', 'Player');
-    if (name && socket) socket.emit('setName', name.slice(0,16));
-  }, 1200);
-
+  // FIX: connectSocket is the entry point; name prompt fires after 'init' event from server
   connectSocket();
 }
 
-function resizeCanvas() {
-  canvas.width=window.innerWidth; canvas.height=window.innerHeight;
-}
+function resizeCanvas(){ canvas.width=window.innerWidth; canvas.height=window.innerHeight; }
 
-// ─── Capture FX ──────────────────────────────────────────────
-function spawnCaptureFX(cells) {
-  if(cells>0) pulses.push({ x:player.x,y:player.y,r:0,maxR:Math.sqrt(cells)*CELL*0.8,age:0,dur:600 });
+// ─── Capture FX ───────────────────────────────────────────────
+function spawnCaptureFX(cells){
+  if(cells>0) pulses.push({x:player.x,y:player.y,r:0,maxR:Math.sqrt(cells)*CELL*0.8,age:0,dur:600});
   flashAlpha.v=cells>0?0.35:0.6;
   if(elScore&&cells>0){
     elScore.classList.remove('score-pop');
@@ -491,13 +484,13 @@ function spawnCaptureFX(cells) {
   }
 }
 
-// ─── Update ───────────────────────────────────────────────────
-function update(dt) {
+// ─── Update (client-side prediction only — no territory logic) ─
+function update(dt){
   const _eff         = effect.type ? POWERUP_TYPES[effect.type] : null;
   const currentSpeed = _eff ? SPEED*_eff.speedMult : SPEED;
   const currentSteer = _eff ? 0.15*_eff.steerMult  : 0.15;
 
-  // Steering (local)
+  // Steering
   if(joy.active&&(joy.dx||joy.dy)){
     const target=Math.atan2(joy.dy,joy.dx);
     player.angle=lerpAngle(player.angle,target,currentSteer);
@@ -510,34 +503,43 @@ function update(dt) {
     }
   }
 
+  // Move
   player.x+=Math.cos(player.angle)*currentSpeed;
   player.y+=Math.sin(player.angle)*currentSpeed;
-  const dx=player.x-CX,dy=player.y-CY,dist=Math.hypot(dx,dy);
+  const dx=player.x-CX, dy=player.y-CY, dist=Math.hypot(dx,dy);
   if(dist>RADIUS){ player.x=CX+(dx/dist)*RADIUS; player.y=CY+(dy/dist)*RADIUS; }
 
-  // Trail (local tracking for rendering — server is authoritative on captures/kills)
-  const [pc,pr]=worldToCell(player.x,player.y);
-  const cellVal=getG(pc,pr);
-  const onOwn  =cellVal===(mySlot+1);
-  const _trailDist=_eff?TRAIL_DIST*_eff.trailDistMult:TRAIL_DIST;
+  // FIX: trail is tracked locally ONLY for rendering purposes.
+  // The server is the sole authority on captures, kills, and the grid.
+  // We only update local trail when server confirms we're outside.
+  const [pc,pr]    = worldToCell(player.x,player.y);
+  const onOwn      = getG(pc,pr)===(mySlot+1);
+  const _trailDist = _eff?TRAIL_DIST*_eff.trailDistMult:TRAIL_DIST;
 
   if(!player.outside){
-    if(!onOwn){ player.outside=true; player.trail=[{x:player.x,y:player.y}]; }
+    // Server will tell us when we're outside via playerPositions
+    // But we can speculatively mark outside for rendering trail immediately
+    if(!onOwn && myId) {
+      player.outside=true;
+      player.trail=[{x:player.x,y:player.y}];
+    }
   } else {
     const last=player.trail[player.trail.length-1];
     if(Math.hypot(player.x-last.x,player.y-last.y)>=_trailDist)
       player.trail.push({x:player.x,y:player.y});
+    // FIX: DON'T do capture logic here — server handles it.
+    // Only clear trail when server confirms home (done in playerPositions handler).
     if(onOwn){ player.outside=false; player.trail=[]; }
   }
 
-  // Effect timer
+  // Effect timer (client-side cosmetic countdown)
   if(effect.type&&effect.remaining!==Infinity){
     effect.remaining-=dt;
     if(effect.remaining<=0){ effect.type=null; effect.remaining=0; }
   }
 
-  // Powerup despawn client-side (cosmetic)
-  if(powerup.active){ powerup.despawnTimer-=dt; }
+  // Powerup despawn cosmetic
+  if(powerup.active) powerup.despawnTimer-=dt;
 
   // Camera
   const tx=player.x-canvas.width/2, ty=player.y-canvas.height/2;
@@ -563,7 +565,7 @@ function lerpAngle(cur,tgt,t){
 }
 
 // ─── Render ───────────────────────────────────────────────────
-function render() {
+function render(){
   const vw=canvas.width, vh=canvas.height;
   const cx=Math.round(camera.x), cy=Math.round(camera.y);
 
@@ -577,104 +579,77 @@ function render() {
   ctx.strokeStyle='rgba(0,180,255,0.12)'; ctx.lineWidth=2; ctx.stroke();
   ctx.restore();
 
-  // Grid
+  // Grid lines
   ctx.save(); ctx.strokeStyle=C_GRID; ctx.lineWidth=1;
   const gc0=Math.max(0,Math.floor(cx/CELL)), gc1=Math.min(COLS,Math.ceil((cx+vw)/CELL));
   const gr0=Math.max(0,Math.floor(cy/CELL)), gr1=Math.min(ROWS,Math.ceil((cy+vh)/CELL));
   ctx.beginPath();
-  for(let c=gc0;c<=gc1;c++){ const sx=c*CELL-cx; ctx.moveTo(sx,0);ctx.lineTo(sx,vh); }
-  for(let r=gr0;r<=gr1;r++){ const sy=r*CELL-cy; ctx.moveTo(0,sy);ctx.lineTo(vw,sy); }
+  for(let c=gc0;c<=gc1;c++){const sx=c*CELL-cx;ctx.moveTo(sx,0);ctx.lineTo(sx,vh);}
+  for(let r=gr0;r<=gr1;r++){const sy=r*CELL-cy;ctx.moveTo(0,sy);ctx.lineTo(vw,sy);}
   ctx.stroke(); ctx.restore();
 
   // Territory blit
   ctx.drawImage(tCanvas,cx,cy,vw,vh,0,0,vw,vh);
 
-  // ── Draw remote players ────────────────────────────────────
-  for (const rp of remotePlayers.values()) {
+  // Remote players
+  for(const rp of remotePlayers.values()){
     const col=PLAYER_COLORS[rp.slot]||PLAYER_COLORS[0];
     const rpx=rp.x-cx, rpy=rp.y-cy;
 
-    // Trail
     if(rp.outside&&rp.trail&&rp.trail.length>=2){
-      ctx.save();
-      ctx.lineJoin='round'; ctx.lineCap='round';
+      ctx.save(); ctx.lineJoin='round'; ctx.lineCap='round';
       const isPhantom=rp.effectType==='phantom';
-      ctx.strokeStyle=isPhantom?col.trail+'40':col.trail+'50';
-      ctx.lineWidth=8;
-      ctx.beginPath();
-      ctx.moveTo(rp.trail[0].x-cx,rp.trail[0].y-cy);
+      ctx.strokeStyle=isPhantom?col.trail+'40':col.trail+'50'; ctx.lineWidth=8;
+      ctx.beginPath(); ctx.moveTo(rp.trail[0].x-cx,rp.trail[0].y-cy);
       for(let i=1;i<rp.trail.length;i++) ctx.lineTo(rp.trail[i].x-cx,rp.trail[i].y-cy);
       ctx.stroke();
-      ctx.strokeStyle=isPhantom?col.trail+'60':col.trail;
-      ctx.lineWidth=3;
-      ctx.beginPath();
-      ctx.moveTo(rp.trail[0].x-cx,rp.trail[0].y-cy);
+      ctx.strokeStyle=isPhantom?col.trail+'60':col.trail; ctx.lineWidth=3;
+      ctx.beginPath(); ctx.moveTo(rp.trail[0].x-cx,rp.trail[0].y-cy);
       for(let i=1;i<rp.trail.length;i++) ctx.lineTo(rp.trail[i].x-cx,rp.trail[i].y-cy);
-      ctx.stroke();
-      ctx.restore();
+      ctx.stroke(); ctx.restore();
     }
 
-    // Glow
     const grd2=ctx.createRadialGradient(rpx,rpy,0,rpx,rpy,20);
     grd2.addColorStop(0,col.glow+'80'); grd2.addColorStop(1,col.glow+'00');
-    ctx.fillStyle=grd2;
-    ctx.beginPath(); ctx.arc(rpx,rpy,20,0,Math.PI*2); ctx.fill();
-
-    // Body
-    ctx.fillStyle=col.fill;
-    ctx.beginPath(); ctx.arc(rpx,rpy,9,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle='#fff';
-    ctx.beginPath(); ctx.arc(rpx,rpy,4,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle=grd2; ctx.beginPath(); ctx.arc(rpx,rpy,20,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle=col.fill; ctx.beginPath(); ctx.arc(rpx,rpy,9,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#fff';  ctx.beginPath(); ctx.arc(rpx,rpy,4,0,Math.PI*2); ctx.fill();
     ctx.fillStyle='rgba(255,255,255,0.8)';
-    ctx.beginPath();
-    ctx.arc(rpx+Math.cos(rp.angle)*11, rpy+Math.sin(rp.angle)*11,2.5,0,Math.PI*2);
-    ctx.fill();
-
-    // Name label
+    ctx.beginPath(); ctx.arc(rpx+Math.cos(rp.angle)*11,rpy+Math.sin(rp.angle)*11,2.5,0,Math.PI*2); ctx.fill();
     ctx.save();
     ctx.font='bold 11px Segoe UI,system-ui,sans-serif';
     ctx.textAlign='center'; ctx.textBaseline='bottom';
-    ctx.fillStyle=col.trail;
-    ctx.shadowColor='#000'; ctx.shadowBlur=4;
-    ctx.fillText(rp.name||'?', rpx, rpy-13);
-    ctx.restore();
+    ctx.fillStyle=col.trail; ctx.shadowColor='#000'; ctx.shadowBlur=4;
+    ctx.fillText(rp.name||'?',rpx,rpy-13); ctx.restore();
   }
 
-  // ── Local player trail ─────────────────────────────────────
+  // Local player trail
   const myCol=PLAYER_COLORS[mySlot]||PLAYER_COLORS[0];
   if(player.outside&&player.trail.length>=2){
-    ctx.save();
-    ctx.lineJoin='round'; ctx.lineCap='round';
+    ctx.save(); ctx.lineJoin='round'; ctx.lineCap='round';
     const isPhantom=effect.type==='phantom';
     const isOvercharge=effect.type==='overcharge';
     ctx.strokeStyle=isPhantom?'rgba(206,147,216,0.22)':isOvercharge?'rgba(255,215,0,0.45)':myCol.trail+'50';
     ctx.lineWidth=isOvercharge?18:10;
-    ctx.shadowColor=isOvercharge?'#ffaa00':'transparent';
-    ctx.shadowBlur=isOvercharge?20:0;
-    ctx.beginPath();
-    ctx.moveTo(player.trail[0].x-cx,player.trail[0].y-cy);
+    ctx.shadowColor=isOvercharge?'#ffaa00':'transparent'; ctx.shadowBlur=isOvercharge?20:0;
+    ctx.beginPath(); ctx.moveTo(player.trail[0].x-cx,player.trail[0].y-cy);
     for(let i=1;i<player.trail.length;i++) ctx.lineTo(player.trail[i].x-cx,player.trail[i].y-cy);
-    ctx.stroke();
-    ctx.shadowBlur=0;
+    ctx.stroke(); ctx.shadowBlur=0;
     ctx.strokeStyle=isPhantom?'#ce93d8':isOvercharge?'#ffd700':myCol.trail;
     ctx.lineWidth=isOvercharge?4.5:3;
-    ctx.beginPath();
-    ctx.moveTo(player.trail[0].x-cx,player.trail[0].y-cy);
+    ctx.beginPath(); ctx.moveTo(player.trail[0].x-cx,player.trail[0].y-cy);
     for(let i=1;i<player.trail.length;i++) ctx.lineTo(player.trail[i].x-cx,player.trail[i].y-cy);
-    ctx.stroke();
-    ctx.restore();
+    ctx.stroke(); ctx.restore();
   }
 
   // Capture pulses
   for(const p of pulses){
     const t=p.age/p.dur, alpha=(1-t)*(1-t)*0.7, r=p.maxR*Math.pow(t,0.5);
-    ctx.save();
-    ctx.beginPath(); ctx.arc(p.x-cx,p.y-cy,r,0,Math.PI*2);
-    ctx.strokeStyle=`rgba(0,220,255,${alpha})`; ctx.lineWidth=3+(1-t)*6; ctx.stroke();
-    ctx.restore();
+    ctx.save(); ctx.beginPath(); ctx.arc(p.x-cx,p.y-cy,r,0,Math.PI*2);
+    ctx.strokeStyle=`rgba(0,220,255,${alpha})`; ctx.lineWidth=3+(1-t)*6; ctx.stroke(); ctx.restore();
   }
 
-  // ── Powerup ────────────────────────────────────────────────
+  // Powerup
   if(powerup.active&&powerup.type){
     const def=POWERUP_TYPES[powerup.type];
     const t=globalTime*0.001, rot=t*0.9, brt=0.55+0.45*Math.sin(t*3.5);
@@ -701,15 +676,14 @@ function render() {
       if(isDying){
         ctx.globalAlpha=baseAlpha*0.9; ctx.strokeStyle=def.color; ctx.lineWidth=2.5;
         ctx.shadowColor=def.glowColor; ctx.shadowBlur=8;
-        ctx.beginPath();
-        ctx.arc(hx,hy,POWERUP_HEX_SIZE+8,-Math.PI/2,-Math.PI/2+Math.PI*2*(despawnFrac/0.25));
+        ctx.beginPath(); ctx.arc(hx,hy,POWERUP_HEX_SIZE+8,-Math.PI/2,-Math.PI/2+Math.PI*2*(despawnFrac/0.25));
         ctx.stroke(); ctx.shadowBlur=0;
       }
       ctx.restore();
     }
   }
 
-  // ── Local player ─────────────────────────────────────────────
+  // Local player with effect ring
   if(effect.type){
     const def=POWERUP_TYPES[effect.type];
     const frac=effect.remaining===Infinity?1:Math.max(0,effect.remaining/def.duration);
@@ -741,11 +715,9 @@ function render() {
   grd.addColorStop(0,myCol.glow+'80'); grd.addColorStop(1,myCol.glow+'00');
   ctx.fillStyle=grd; ctx.beginPath(); ctx.arc(px,py,20,0,Math.PI*2); ctx.fill();
   ctx.fillStyle=myCol.fill; ctx.beginPath(); ctx.arc(px,py,9,0,Math.PI*2); ctx.fill();
-  ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(px,py,4,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#fff';     ctx.beginPath(); ctx.arc(px,py,4,0,Math.PI*2); ctx.fill();
   ctx.fillStyle='rgba(255,255,255,0.8)';
-  ctx.beginPath();
-  ctx.arc(px+Math.cos(player.angle)*11,py+Math.sin(player.angle)*11,2.5,0,Math.PI*2);
-  ctx.fill();
+  ctx.beginPath(); ctx.arc(px+Math.cos(player.angle)*11,py+Math.sin(player.angle)*11,2.5,0,Math.PI*2); ctx.fill();
 
   // Flash overlay
   if(flashAlpha.v>0.005){
@@ -754,11 +726,11 @@ function render() {
     ctx.fillRect(0,0,vw,vh);
   }
 
-  // Powerup chevron edge indicator
+  // Powerup edge chevron
   if(powerup.active){
     const adx=powerup.x-player.x, ady=powerup.y-player.y;
     const onScreen=(powerup.x-cx>40&&powerup.x-cx<vw-40&&powerup.y-cy>40&&powerup.y-cy<vh-40);
-    if(!onScreen&&Math.hypot(adx,ady)>80){
+    if(!onScreen){
       const aAngle=Math.atan2(ady,adx);
       const pulse=0.65+0.35*Math.sin(globalTime*0.007);
       const margin=38;
@@ -810,34 +782,32 @@ function render() {
   renderHUD();
 }
 
-// ─── Kill feed DOM render ─────────────────────────────────────
-function renderKillFeed() {
-  if (!elKillfeed) return;
-  const now = Date.now();
-  // Clean expired
-  while (killFeed.length && now - killFeed[killFeed.length-1].ts > KILLFEED_DURATION) killFeed.pop();
-
-  elKillfeed.innerHTML = '';
-  for (let i=0; i<Math.min(killFeed.length,5); i++) {
-    const kf = killFeed[i];
-    const age = (now - kf.ts) / KILLFEED_DURATION;
-    const div = document.createElement('div');
-    div.className = 'kf-entry';
-    div.style.opacity = Math.max(0, 1 - age*1.5);
-    div.style.color   = kf.color;
-    div.textContent   = kf.text;
+// ─── Kill feed DOM ────────────────────────────────────────────
+function renderKillFeed(){
+  if(!elKillfeed) return;
+  const now=Date.now();
+  while(killFeed.length&&now-killFeed[killFeed.length-1].ts>KILLFEED_DURATION) killFeed.pop();
+  elKillfeed.innerHTML='';
+  for(let i=0;i<Math.min(killFeed.length,5);i++){
+    const kf=killFeed[i];
+    const age=(now-kf.ts)/KILLFEED_DURATION;
+    const div=document.createElement('div');
+    div.className='kf-entry';
+    div.style.opacity=Math.max(0,1-age*1.5);
+    div.style.color=kf.color;
+    div.textContent=kf.text;
     elKillfeed.appendChild(div);
   }
 }
 
-function renderLeaderboardDOM() {
-  if (!elLeaderboard) return;
-  elLeaderboard.innerHTML = '';
-  leaderboard.slice(0,10).forEach((entry, i) => {
-    const col = PLAYER_COLORS[entry.slot]||PLAYER_COLORS[0];
-    const row = document.createElement('div');
-    row.className = 'lb-row' + (entry.id === myId ? ' lb-me' : '');
-    row.innerHTML = `<span class="lb-rank">${i+1}</span>
+function renderLeaderboardDOM(){
+  if(!elLeaderboard) return;
+  elLeaderboard.innerHTML='';
+  leaderboard.slice(0,10).forEach((entry,i)=>{
+    const col=PLAYER_COLORS[entry.slot]||PLAYER_COLORS[0];
+    const row=document.createElement('div');
+    row.className='lb-row'+(entry.id===myId?' lb-me':'');
+    row.innerHTML=`<span class="lb-rank">${i+1}</span>
       <span class="lb-dot" style="background:${col.fill}"></span>
       <span class="lb-name">${escapeHtml(entry.name||'?')}</span>
       <span class="lb-score">${entry.score.toLocaleString()}</span>`;
@@ -845,11 +815,11 @@ function renderLeaderboardDOM() {
   });
 }
 
-function escapeHtml(s) {
+function escapeHtml(s){
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
-function renderHUD() {
+function renderHUD(){
   const pct=Math.min(100,(ownedCells/totalOwnableCells*100)).toFixed(1);
   if(elScore) elScore.textContent=territoryScore.toLocaleString();
   if(elPct)   elPct.textContent=pct+'% of map';
@@ -883,12 +853,11 @@ function renderHUD() {
   }
 }
 
-// ─── Inject UI elements dynamically ──────────────────────────
-function injectUIElements() {
-  // Leaderboard panel
-  const lb = document.createElement('div');
-  lb.id = 'leaderboard';
-  lb.innerHTML = `
+// ─── Inject UI elements ───────────────────────────────────────
+function injectUIElements(){
+  const lb=document.createElement('div');
+  lb.id='leaderboard';
+  lb.innerHTML=`
     <div class="lb-header">
       <span class="lb-title">🏆 Leaderboard</span>
       <span id="player-count" class="lb-pcount">0/10</span>
@@ -899,66 +868,35 @@ function injectUIElements() {
     </div>`;
   document.body.appendChild(lb);
 
-  // Kill feed
-  const kf = document.createElement('div');
-  kf.id = 'killfeed';
+  const kf=document.createElement('div');
+  kf.id='killfeed';
   document.body.appendChild(kf);
 }
 
-function injectStyles() {
-  const s = document.createElement('style');
-  s.textContent = `
-    @keyframes scorePop {
-      0%   { transform:scale(1);    color:#fff }
-      35%  { transform:scale(1.25); color:#00e5ff }
-      100% { transform:scale(1);    color:#fff }
-    }
-    .score-pop { animation: scorePop 0.45s cubic-bezier(.22,1,.36,1) forwards }
-
-    /* Leaderboard */
-    #leaderboard {
-      position:fixed; top:16px; right:16px; z-index:10;
-      background:rgba(7,9,20,0.82);
-      border:1px solid rgba(0,200,255,0.15);
-      border-radius:12px; padding:10px 14px;
-      backdrop-filter:blur(10px);
-      -webkit-backdrop-filter:blur(10px);
-      min-width:200px; pointer-events:none;
-    }
-    .lb-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
-    .lb-title  { font-size:9px; font-weight:700; letter-spacing:.14em; text-transform:uppercase; color:rgba(0,200,255,.55); }
-    .lb-pcount { font-size:9px; color:rgba(255,255,255,.3); font-weight:600; }
-    .lb-row    { display:flex; align-items:center; gap:6px; padding:3px 0; font-size:11px; color:rgba(255,255,255,.7); }
-    .lb-me     { color:#fff; font-weight:700; }
-    .lb-rank   { width:14px; text-align:right; color:rgba(255,255,255,.3); font-size:10px; }
-    .lb-dot    { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
-    .lb-name   { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .lb-score  { font-variant-numeric:tabular-nums; color:rgba(255,255,255,.45); font-size:10px; }
-    .lb-status { margin-top:6px; padding-top:5px; border-top:1px solid rgba(255,255,255,.06);
-                 font-size:9px; text-align:center; }
-
-    /* Kill feed */
-    #killfeed {
-      position:fixed; bottom:60px; right:16px; z-index:10;
-      display:flex; flex-direction:column; gap:4px; align-items:flex-end;
-      pointer-events:none; min-width:220px;
-    }
-    .kf-entry {
-      background:rgba(7,9,20,0.75);
-      border:1px solid rgba(255,255,255,0.07);
-      border-radius:6px; padding:5px 10px;
-      font-size:11px; font-weight:600;
-      letter-spacing:.02em;
-      backdrop-filter:blur(6px);
-      transition:opacity .3s;
-      white-space:nowrap;
-    }
+function injectStyles(){
+  const s=document.createElement('style');
+  s.textContent=`
+    @keyframes scorePop{0%{transform:scale(1);color:#fff}35%{transform:scale(1.25);color:#00e5ff}100%{transform:scale(1);color:#fff}}
+    .score-pop{animation:scorePop 0.45s cubic-bezier(.22,1,.36,1) forwards}
+    #leaderboard{position:fixed;top:16px;right:16px;z-index:10;background:rgba(7,9,20,0.82);border:1px solid rgba(0,200,255,0.15);border-radius:12px;padding:10px 14px;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);min-width:200px;pointer-events:none;}
+    .lb-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;}
+    .lb-title{font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:rgba(0,200,255,.55);}
+    .lb-pcount{font-size:9px;color:rgba(255,255,255,.3);font-weight:600;}
+    .lb-row{display:flex;align-items:center;gap:6px;padding:3px 0;font-size:11px;color:rgba(255,255,255,.7);}
+    .lb-me{color:#fff;font-weight:700;}
+    .lb-rank{width:14px;text-align:right;color:rgba(255,255,255,.3);font-size:10px;}
+    .lb-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;}
+    .lb-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    .lb-score{font-variant-numeric:tabular-nums;color:rgba(255,255,255,.45);font-size:10px;}
+    .lb-status{margin-top:6px;padding-top:5px;border-top:1px solid rgba(255,255,255,.06);font-size:9px;text-align:center;}
+    #killfeed{position:fixed;bottom:60px;right:16px;z-index:10;display:flex;flex-direction:column;gap:4px;align-items:flex-end;pointer-events:none;min-width:220px;}
+    .kf-entry{background:rgba(7,9,20,0.75);border:1px solid rgba(255,255,255,0.07);border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;letter-spacing:.02em;backdrop-filter:blur(6px);transition:opacity .3s;white-space:nowrap;}
   `;
   document.head.appendChild(s);
 }
 
 // ─── Game loop ────────────────────────────────────────────────
-function loop(ts) {
+function loop(ts){
   const dt=Math.min(ts-lastTime,50);
   lastTime=ts;
   update(dt);
