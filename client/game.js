@@ -6,7 +6,7 @@
    ============================================================= */
 
 // ▼▼▼ CHANGE THIS to your Render server URL ▼▼▼
-const SERVER_URL = 'https://YOUR-APP-NAME.onrender.com';
+const SERVER_URL = 'https://cyber-claim.onrender.com';
 // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
 // ─── Constants (must match server) ────────────────────────────
