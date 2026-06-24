@@ -30,16 +30,7 @@ const TRAIL_DIST  = 6;
 const START_HALF  = 5;
 const MAX_PLAYERS = 10;
 const TICK_RATE   = 50; // ms per tick (20 Hz)
-// Inside tick(), after powerup pickup block, add:
-console.log(`Powerup active: ${powerup.active}, Players: ${players.size}`);
-function captureFloodFill(trail, slot) {
-  if (trail.length < 3) return { gained:0, stolen:{} };
 
-  // ... existing code ...
-
-  // Quick early-out if trail is too small
-  if (trail.length < 4) return { gained:0, stolen:{} };
-}
 // Powerup settings
 const POWERUP_PICKUP_R = 20;
 const POWERUP_RESPAWN  = 22000;
@@ -226,6 +217,16 @@ const BROADCAST_INTERVAL = 200; // send grid/leaderboard at most every 200ms
 // ── Game tick ─────────────────────────────────────────────────
 let lastTick = Date.now();
 function tick() {
+  // Inside tick(), after powerup pickup block, add:
+console.log(`Powerup active: ${powerup.active}, Players: ${players.size}`);
+function captureFloodFill(trail, slot) {
+  if (trail.length < 3) return { gained:0, stolen:{} };
+
+  // ... existing code ...
+
+  // Quick early-out if trail is too small
+  if (trail.length < 4) return { gained:0, stolen:{} };
+}
   const now = Date.now();
   const dt  = Math.min(now - lastTick, 100); // cap dt to avoid spiral-of-death
   lastTick  = now;
@@ -386,6 +387,15 @@ function tick() {
     if (gridDirty)        { io.emit('gridUpdate',  buildGridPayload());    gridDirty=false; }
     if (leaderboardDirty) { io.emit('leaderboard', buildLeaderboard()); leaderboardDirty=false; }
   }
+      // Anti-cheat: limit max movement
+    const oldX = player.x, oldY = player.y;
+    // ... (existing movement code) ...
+
+    const movedDist = Math.hypot(p.x - oldX, p.y - oldY);
+    if (movedDist > SPEED * 1.6) {  // allow some powerup headroom
+      p.x = oldX;
+      p.y = oldY;
+    }
 }
 
 // ── Socket.IO ─────────────────────────────────────────────────
