@@ -1,4 +1,3 @@
-'use strict';
 /* =============================================================
    TERRITORY.IO  —  Multiplayer Client  (FIXED)
    ============================================================= */
@@ -232,25 +231,31 @@ function initSocket() {
   });
 
   socket.on('playerPositions', list => {
-    for (const rp of list) {
+   for (const rp of list) {
       if (rp.id === myId) {
-        // FIX: sync outside/trail from server so capture state stays consistent
-        // Keep local x/y/angle for smooth prediction, but trust server's game state flags
-        player.outside = rp.outside;
-        if (!rp.outside) player.trail = []; // server says we're home → clear trail
+       // Server authoritative for state
+       player.outside = rp.outside;
+       if (!rp.outside) player.trail = [];
+       // Optional: smooth position correction
+       // player.x = player.x * 0.7 + rp.x * 0.3; etc.
       } else {
-        remotePlayers.set(rp.id, rp);
-      }
+      remotePlayers.set(rp.id, rp);
     }
-  });
+  }
+});
 
+let lastRedraw = 0;
   socket.on('gridUpdate', b64 => {
-    const buf = Uint8Array.from(atob(b64), c=>c.charCodeAt(0));
-    grid.set(buf);
-    redrawTerritoryCanvas();
-    mmDirty = true;
-    recalcOwnedCells();
-  });
+  const now = Date.now();
+  if (now - lastRedraw < 80) return; // throttle heavy redraw
+  lastRedraw = now;
+
+  const buf = Uint8Array.from(atob(b64), c=>c.charCodeAt(0));
+  grid.set(buf);
+  redrawTerritoryCanvas();
+  mmDirty = true;
+  recalcOwnedCells();
+});;
 
   socket.on('leaderboard', data => {
     leaderboard = data;
@@ -293,35 +298,38 @@ function initSocket() {
   });
 }
 
-// ─── Name prompt (non-blocking overlay) ──────────────────────
+// ─── Name prompt ──────────────────────────────────────────────
 let _namePrompted = false;
 function promptName() {
   if (_namePrompted || !socket) return;
   _namePrompted = true;
 
-  // Build overlay — game loop keeps running underneath
-  const overlay = document.createElement('div');
-  overlay.id = 'name-overlay';
-  overlay.innerHTML = `
-    <div id="name-card">
-      <div id="name-title">🌐 Enter Your Name</div>
-      <input id="name-input" type="text" maxlength="16" placeholder="Player" autocomplete="off" spellcheck="false" />
-      <button id="name-btn">Play</button>
-    </div>`;
-  document.body.appendChild(overlay);
+  const modal = document.createElement('div');
+  modal.style.cssText = `
+    position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+    background:rgba(7,9,20,0.95); border:2px solid #00e5ff; padding:30px 40px;
+    border-radius:12px; color:#fff; font-family:system-ui; z-index:1000;
+    text-align:center; box-shadow:0 0 40px rgba(0,229,255,0.3);
+  `;
+  modal.innerHTML = `
+    <div style="font-size:18px;margin-bottom:16px">Enter your name</div>
+    <input id="nameInput" maxlength="16" value="Player" style="padding:10px 16px;font-size:18px;width:220px;background:#111;border:1px solid #00e5ff;color:#fff;border-radius:6px;">
+    <br><button id="nameBtn" style="margin-top:16px;padding:10px 32px;background:#00e5ff;color:#000;border:none;border-radius:6px;font-weight:700;cursor:pointer;">Join</button>
+  `;
+  document.body.appendChild(modal);
 
-  const input = document.getElementById('name-input');
-  const btn   = document.getElementById('name-btn');
-  input.focus();
+  const input = modal.querySelector('#nameInput');
+  const btn = modal.querySelector('#nameBtn');
 
-  function submit() {
-    const name = input.value.trim().slice(0, 16) || 'Player';
+  const submit = () => {
+    const name = input.value.trim().slice(0,16) || 'Player';
     if (socket && connected) socket.emit('setName', name);
-    overlay.remove();
-  }
+    modal.remove();
+  };
 
-  btn.addEventListener('click', submit);
-  input.addEventListener('keydown', e => { if (e.key === 'Enter') submit(); });
+  btn.onclick = submit;
+  input.focus();
+  input.onkeydown = e => { if (e.key === 'Enter') submit(); };
 }
 
 // ─── Start positions ──────────────────────────────────────────
@@ -910,13 +918,6 @@ function injectStyles(){
     .lb-status{margin-top:6px;padding-top:5px;border-top:1px solid rgba(255,255,255,.06);font-size:9px;text-align:center;}
     #killfeed{position:fixed;bottom:60px;right:16px;z-index:10;display:flex;flex-direction:column;gap:4px;align-items:flex-end;pointer-events:none;min-width:220px;}
     .kf-entry{background:rgba(7,9,20,0.75);border:1px solid rgba(255,255,255,0.07);border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;letter-spacing:.02em;backdrop-filter:blur(6px);transition:opacity .3s;white-space:nowrap;}
-    #name-overlay{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;background:rgba(7,9,20,0.72);backdrop-filter:blur(6px);}
-    #name-card{background:rgba(10,12,24,0.95);border:1px solid rgba(0,200,255,0.25);border-radius:16px;padding:32px 36px;display:flex;flex-direction:column;gap:14px;align-items:center;min-width:280px;box-shadow:0 0 40px rgba(0,200,255,0.12);}
-    #name-title{font-size:15px;font-weight:700;letter-spacing:0.08em;color:rgba(0,200,255,0.85);text-transform:uppercase;}
-    #name-input{width:100%;padding:10px 14px;border-radius:8px;border:1px solid rgba(0,200,255,0.3);background:rgba(255,255,255,0.05);color:#fff;font-size:15px;font-family:inherit;outline:none;text-align:center;letter-spacing:0.04em;}
-    #name-input:focus{border-color:rgba(0,200,255,0.7);box-shadow:0 0 10px rgba(0,200,255,0.15);}
-    #name-btn{padding:10px 32px;border-radius:8px;border:none;background:rgba(0,200,255,0.18);color:#00e5ff;font-size:13px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;cursor:pointer;transition:background 0.15s;}
-    #name-btn:hover{background:rgba(0,200,255,0.32);}
   `;
   document.head.appendChild(s);
 }
