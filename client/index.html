@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>Territory.io — Multiplayer</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <canvas id="gameCanvas"></canvas>
+
+  <!-- HUD -->
+  <div id="hud">
+    <div class="hud-card">
+      <div class="hud-label">Territory</div>
+      <div class="hud-value" id="score-display">0</div>
+      <div class="hud-sub"   id="pct-display">0% of map</div>
+    </div>
+  </div>
+
+  <!-- Boost badge -->
+  <div id="boost-hud" style="display:none">
+    <div class="hud-card" style="margin-top:8px; border-color:rgba(255,210,0,0.35)">
+      <div class="hud-label" style="color:rgba(255,210,0,0.7)">Speed Boost</div>
+      <div class="hud-value" id="boost-timer" style="color:#ffd700;font-size:20px">5.0s</div>
+    </div>
+  </div>
+
+  <!-- Debug Panel (press L to toggle) -->
+  <div id="debug" class="hidden">
+    <div class="debug-card">
+      <div class="debug-title">Debug</div>
+      <div class="debug-row"><span class="debug-key">FPS</span>   <span class="debug-val" id="d-fps">0</span></div>
+      <div class="debug-row"><span class="debug-key">X / Y</span> <span class="debug-val" id="d-pos">0 / 0</span></div>
+      <div class="debug-row"><span class="debug-key">Trail</span> <span class="debug-val" id="d-trail">0</span></div>
+      <div class="debug-row"><span class="debug-key">Owned</span> <span class="debug-val" id="d-owned">0</span></div>
+      <div class="debug-row"><span class="debug-key">State</span> <span class="debug-val" id="d-state">HOME</span></div>
+      <div class="debug-row"><span class="debug-key">Boost</span> <span class="debug-val" id="d-boost">—</span></div>
+    </div>
+  </div>
+
+  <!-- Flash overlay -->
+  <div id="capture-flash"></div>
+
+  <!-- Hint -->
+  <div id="hint">
+    <span class="hint-pc">Move mouse to steer — loop back to your zone to claim land</span>
+    <span class="hint-mobile">Drag anywhere to steer — loop back to your zone to claim land</span>
+  </div>
+
+  <!-- Leaderboard and kill feed are injected by game.js -->
+
+  <script>
+    document.addEventListener('keydown', e => {
+      if (e.key === 'l' || e.key === 'L')
+        document.getElementById('debug').classList.toggle('hidden');
+    });
+  </script>
+  <script src="game.js"></script>
+</body>
+</html>

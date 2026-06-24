@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: territory-io-server
+    env: node
+    buildCommand: cd server && npm install
+    startCommand: cd server && node server.js
+    envVars:
+      - key: PORT
+        value: 3001
+    plan: free
