@@ -231,14 +231,16 @@ function initSocket() {
   });
 
   socket.on('playerPositions', list => {
-   for (const rp of list) {
-      if (rp.id === myId) {
-       // Server authoritative for state
-       player.outside = rp.outside;
-       if (!rp.outside) player.trail = [];
-       // Optional: smooth position correction
-       // player.x = player.x * 0.7 + rp.x * 0.3; etc.
-      } else {
+  for (const rp of list) {
+    if (rp.id === myId) {
+      // Reconciliation - smooth correction
+      player.x = player.x * 0.6 + rp.x * 0.4;
+      player.y = player.y * 0.6 + rp.y * 0.4;
+      player.angle = lerpAngle(player.angle, rp.angle, 0.4);
+
+      player.outside = rp.outside;
+      if (!rp.outside) player.trail = [];
+    } else {
       remotePlayers.set(rp.id, rp);
     }
   }
@@ -511,79 +513,90 @@ function spawnCaptureFX(cells){
   }
 }
 
-// ─── Update (client-side prediction only — no territory logic) ─
+// ─── Update — Strong Client-Side Prediction ─────────────────────
 function update(dt){
   const _eff         = effect.type ? POWERUP_TYPES[effect.type] : null;
-  const currentSpeed = _eff ? SPEED*_eff.speedMult : SPEED;
-  const currentSteer = _eff ? 0.15*_eff.steerMult  : 0.15;
+  const currentSpeed = _eff ? SPEED * _eff.speedMult : SPEED;
+  const currentSteer = _eff ? 0.15 * _eff.steerMult : 0.15;
 
-  // Steering
-  if(joy.active&&(joy.dx||joy.dy)){
-    const target=Math.atan2(joy.dy,joy.dx);
-    player.angle=lerpAngle(player.angle,target,currentSteer);
+  // === LOCAL PREDICTION (instant feel) ===
+  let moved = false;
+  if(joy.active && (joy.dx || joy.dy)){
+    const target = Math.atan2(joy.dy, joy.dx);
+    player.angle = lerpAngle(player.angle, target, currentSteer);
+    moved = true;
   } else if(input.active){
-    const wx=input.x+camera.x, wy=input.y+camera.y;
-    const ddx=wx-player.x, ddy=wy-player.y;
-    if(Math.hypot(ddx,ddy)>10){
-      const target=Math.atan2(ddy,ddx);
-      player.angle=lerpAngle(player.angle,target,currentSteer);
+    const wx = input.x + camera.x, wy = input.y + camera.y;
+    const ddx = wx - player.x, ddy = wy - player.y;
+    if(Math.hypot(ddx, ddy) > 10){
+      const target = Math.atan2(ddy, ddx);
+      player.angle = lerpAngle(player.angle, target, currentSteer);
+      moved = true;
     }
   }
 
-  // Move
-  player.x+=Math.cos(player.angle)*currentSpeed;
-  player.y+=Math.sin(player.angle)*currentSpeed;
-  const dx=player.x-CX, dy=player.y-CY, dist=Math.hypot(dx,dy);
-  if(dist>RADIUS){ player.x=CX+(dx/dist)*RADIUS; player.y=CY+(dy/dist)*RADIUS; }
+  if(moved){
+    player.x += Math.cos(player.angle) * currentSpeed;
+    player.y += Math.sin(player.angle) * currentSpeed;
 
-  // FIX: trail is tracked locally ONLY for rendering purposes.
-  // The server is the sole authority on captures, kills, and the grid.
-  // We only update local trail when server confirms we're outside.
-  const [pc,pr]    = worldToCell(player.x,player.y);
-  const onOwn      = getG(pc,pr)===(mySlot+1);
-  const _trailDist = _eff?TRAIL_DIST*_eff.trailDistMult:TRAIL_DIST;
+    // Clamp to world
+    const dist = Math.hypot(player.x - CX, player.y - CY);
+    if(dist > RADIUS){
+      const nx = (player.x - CX) / dist;
+      const ny = (player.y - CY) / dist;
+      player.x = CX + nx * RADIUS;
+      player.y = CY + ny * RADIUS;
+    }
+  }
+
+  // Local trail for smooth rendering
+  const [pc, pr] = worldToCell(player.x, player.y);
+  const onOwn = getG(pc, pr) === (mySlot + 1);
+  const _trailDist = _eff ? TRAIL_DIST * _eff.trailDistMult : TRAIL_DIST;
 
   if(!player.outside){
-    // Server will tell us when we're outside via playerPositions
-    // But we can speculatively mark outside for rendering trail immediately
-    if(!onOwn && myId) {
-      player.outside=true;
-      player.trail=[{x:player.x,y:player.y}];
+    if(!onOwn){
+      player.outside = true;
+      player.trail = [{x: player.x, y: player.y}];
     }
   } else {
-    const last=player.trail[player.trail.length-1];
-    if(Math.hypot(player.x-last.x,player.y-last.y)>=_trailDist)
-      player.trail.push({x:player.x,y:player.y});
-    // FIX: DON'T do capture logic here — server handles it.
-    // Only clear trail when server confirms home (done in playerPositions handler).
-    if(onOwn){ player.outside=false; player.trail=[]; }
+    const last = player.trail[player.trail.length-1];
+    if(Math.hypot(player.x - last.x, player.y - last.y) >= _trailDist){
+      player.trail.push({x: player.x, y: player.y});
+    }
+    if(onOwn){
+      // Optimistic clear — server will confirm
+      player.outside = false;
+      player.trail = [];
+    }
   }
 
-  // Effect timer (client-side cosmetic countdown)
-  if(effect.type&&effect.remaining!==Infinity){
-    effect.remaining-=dt;
-    if(effect.remaining<=0){ effect.type=null; effect.remaining=0; }
+  // Cosmetic timers
+  if(effect.type && effect.remaining !== Infinity){
+    effect.remaining -= dt;
+    if(effect.remaining <= 0){ effect.type = null; effect.remaining = 0; }
   }
+  if(powerup.active) powerup.despawnTimer -= dt;
 
-  // Powerup despawn cosmetic
-  if(powerup.active) powerup.despawnTimer-=dt;
+  // Camera follow
+  const tx = player.x - canvas.width/2;
+  const ty = player.y - canvas.height/2;
+  camera.x += (tx - camera.x) * 0.12;
+  camera.y += (ty - camera.y) * 0.12;
 
-  // Camera
-  const tx=player.x-canvas.width/2, ty=player.y-canvas.height/2;
-  camera.x+=(tx-camera.x)*0.12; camera.y+=(ty-camera.y)*0.12;
+  // FX + FPS
+  globalTime += dt;
+  for(let i = pulses.length-1; i >= 0; i--){
+    pulses[i].age += dt;
+    if(pulses[i].age > pulses[i].dur) pulses.splice(i,1);
+  }
+  flashAlpha.v *= 0.88;
 
-  // FX
-  globalTime+=dt;
-  for(let i=pulses.length-1;i>=0;i--){ pulses[i].age+=dt; if(pulses[i].age>pulses[i].dur)pulses.splice(i,1); }
-  flashAlpha.v*=0.88;
-
-  // FPS
-  fpsFrames++; fpsAccum+=dt;
-  if(fpsAccum>=1000){ fps=fpsFrames; fpsFrames=0; fpsAccum-=1000; }
+  fpsFrames++; fpsAccum += dt;
+  if(fpsAccum >= 1000){ fps = fpsFrames; fpsFrames = 0; fpsAccum -= 1000; }
 
   sendInput(dt);
 }
-
 function lerpAngle(cur,tgt,t){
   let d=tgt-cur;
   while(d> Math.PI)d-=Math.PI*2;
