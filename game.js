@@ -293,16 +293,35 @@ function initSocket() {
   });
 }
 
-// ─── Name prompt ──────────────────────────────────────────────
+// ─── Name prompt (non-blocking overlay) ──────────────────────
 let _namePrompted = false;
 function promptName() {
   if (_namePrompted || !socket) return;
   _namePrompted = true;
-  // Small delay so the screen has rendered before the prompt blocks it
-  setTimeout(() => {
-    const name = prompt('Enter your name (max 16 chars):', 'Player');
-    if (name && socket && connected) socket.emit('setName', name.slice(0,16));
-  }, 300);
+
+  // Build overlay — game loop keeps running underneath
+  const overlay = document.createElement('div');
+  overlay.id = 'name-overlay';
+  overlay.innerHTML = `
+    <div id="name-card">
+      <div id="name-title">🌐 Enter Your Name</div>
+      <input id="name-input" type="text" maxlength="16" placeholder="Player" autocomplete="off" spellcheck="false" />
+      <button id="name-btn">Play</button>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  const input = document.getElementById('name-input');
+  const btn   = document.getElementById('name-btn');
+  input.focus();
+
+  function submit() {
+    const name = input.value.trim().slice(0, 16) || 'Player';
+    if (socket && connected) socket.emit('setName', name);
+    overlay.remove();
+  }
+
+  btn.addEventListener('click', submit);
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') submit(); });
 }
 
 // ─── Start positions ──────────────────────────────────────────
@@ -891,6 +910,13 @@ function injectStyles(){
     .lb-status{margin-top:6px;padding-top:5px;border-top:1px solid rgba(255,255,255,.06);font-size:9px;text-align:center;}
     #killfeed{position:fixed;bottom:60px;right:16px;z-index:10;display:flex;flex-direction:column;gap:4px;align-items:flex-end;pointer-events:none;min-width:220px;}
     .kf-entry{background:rgba(7,9,20,0.75);border:1px solid rgba(255,255,255,0.07);border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;letter-spacing:.02em;backdrop-filter:blur(6px);transition:opacity .3s;white-space:nowrap;}
+    #name-overlay{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;background:rgba(7,9,20,0.72);backdrop-filter:blur(6px);}
+    #name-card{background:rgba(10,12,24,0.95);border:1px solid rgba(0,200,255,0.25);border-radius:16px;padding:32px 36px;display:flex;flex-direction:column;gap:14px;align-items:center;min-width:280px;box-shadow:0 0 40px rgba(0,200,255,0.12);}
+    #name-title{font-size:15px;font-weight:700;letter-spacing:0.08em;color:rgba(0,200,255,0.85);text-transform:uppercase;}
+    #name-input{width:100%;padding:10px 14px;border-radius:8px;border:1px solid rgba(0,200,255,0.3);background:rgba(255,255,255,0.05);color:#fff;font-size:15px;font-family:inherit;outline:none;text-align:center;letter-spacing:0.04em;}
+    #name-input:focus{border-color:rgba(0,200,255,0.7);box-shadow:0 0 10px rgba(0,200,255,0.15);}
+    #name-btn{padding:10px 32px;border-radius:8px;border:none;background:rgba(0,200,255,0.18);color:#00e5ff;font-size:13px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;cursor:pointer;transition:background 0.15s;}
+    #name-btn:hover{background:rgba(0,200,255,0.32);}
   `;
   document.head.appendChild(s);
 }
