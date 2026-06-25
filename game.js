@@ -230,18 +230,26 @@ function initSocket() {
     if (elPlayerCount) elPlayerCount.textContent = (remotePlayers.size+1) + '/10';
   });
 
+  // In playerPositions handler
   socket.on('playerPositions', list => {
-  for (const rp of list) {
+    for (const rp of list) {
     if (rp.id === myId) {
-      // Reconciliation - smooth correction
-      player.x = player.x * 0.6 + rp.x * 0.4;
-      player.y = player.y * 0.6 + rp.y * 0.4;
-      player.angle = lerpAngle(player.angle, rp.angle, 0.4);
-
+      // Smoother reconciliation for free-tier latency
+      player.x = player.x * 0.75 + rp.x * 0.25;
+      player.y = player.y * 0.75 + rp.y * 0.25;
+      player.angle = lerpAngle(player.angle, rp.angle, 0.3);
       player.outside = rp.outside;
       if (!rp.outside) player.trail = [];
     } else {
-      remotePlayers.set(rp.id, rp);
+      // Better remote interpolation
+      const remote = remotePlayers.get(rp.id);
+      if (remote) {
+        remote.targetX = rp.x;
+        remote.targetY = rp.y;
+        remote.targetAngle = rp.angle;
+      } else {
+        remotePlayers.set(rp.id, rp);
+      }
     }
   }
 });
